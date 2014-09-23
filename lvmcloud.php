@@ -11,8 +11,8 @@ include_once "RESTClient.php";
 function lvmcloud_ConfigOptions() {
 
     # Should return an array of the module options for each product - maximum of 24
-    $plans= RESTClient::init("https://cp.lvmcloud.com/api/plans")->get()->getBody();
-    $localizations= RESTClient::init("https://cp.lvmcloud.com/api/localizations")->headers(array())->get()->getBody();
+    $plans=RESTClient::init("https://cp.lvmcloud.com/api/plans")->get()->getBody();
+    $localizations=RESTClient::init("https://cp.lvmcloud.com/api/localizations")->get()->getBody();
 
     $_plans = "Select a plan:";
     foreach($plans as $plan){
@@ -26,10 +26,9 @@ function lvmcloud_ConfigOptions() {
         "PLAN" => array( "Type" => "dropdown", "Options" => $_plans ),
         "LOCALIZATION"=>array("Type"=>"dropdown","Options"=>$_localizations),
     );
-
     return $configarray;
-
 }
+
 function lvmcloud_CreateAccount($params) {
 
     # ** The variables listed below are passed into all module functions **
@@ -60,28 +59,30 @@ function lvmcloud_CreateAccount($params) {
     $serversecure = $params["serversecure"]; # If set, SSL Mode is enabled in the server config
     $plan = explode("|", $params["configoptions"]["plan_id"]);
     $plan_id = $plan[0];
+    $localization=explode("|",$params["configoptions"]["localization_id"]);
+    $localization_id=$localization[0];
     $template = explode("|", $params["configoptions"]["template_id"]);
     $template_id = $template[0];
-    $ch = curl_init();
     $response = RESTClient::init("https://cp.lvmcloud.com/api/instance")
         ->params(array(
-                'localization_id'=>1,
+                'localization_id'=>$localization_id,
                 'plan_id'=>$plan_id,
                 'template_id'=>$template_id))
         ->headers(array(
                 'User-Token:'.$params['serverusername'],
                 'User-TokenKey:'.$params['serverpassword']))
         ->post();
+    $_response=$response->getBody();
     $successful=false;
-    if(isset($array['id'])){
+    if(isset($_response['id'])){
         $successful=true;
     }
     // further processing ....
 
     if ($successful) {
-        $result = "success, vmid=".$array['id'];
+        $result = "success, vmid=".$_response['id'];
     } else {
-        $result = $array['message'];
+        $result = $_response['message'];
     }
     return $result;
 
@@ -167,7 +168,7 @@ function lvmcloud_AdminLink($params) {
 
 function lvmcloud_LoginLink($params) {
 
-    echo '<a href="http://cp.lvmcloud.com/" target=\"_blank\" style=\"color:#cc0000\">Entrar al panel</a>';
+    //echo '<a href="http://cp.lvmcloud.com/" target=\"_blank\" style=\"color:#cc0000\">Entrar al panel</a>';
 
 }
 
@@ -202,9 +203,11 @@ function lvmcloud_start($params) {
     // receive server response ...
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     $server_output = curl_exec($ch);
-    $array = json_decode($server_output, true);
-    curl_close($ch);
-    $successful = true;
+    $array=RESTClient::init('https://cp.lvmcloud.com/api/instance/start/'.$params['customfields']['server_id'])
+        ->headers(array(
+            'User-Token:'.$params['serverusername'],
+            'User-TokenKey:'.$params['serverpassword']))
+        ->put()->getBody();
     if ($array['instance']['status']=="STARTED") {
         $result = "success";
     } else {
