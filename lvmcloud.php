@@ -5,18 +5,26 @@
  * Date: 23/09/14
  * Time: 12:14
  */
+include_once "RESTClient.php";
+
 
 function lvmcloud_ConfigOptions() {
 
     # Should return an array of the module options for each product - maximum of 24
-    $g = file_get_contents("https://cp.lvmcloud.com/api/plans");
-    $array = json_decode($g, true);
-    $texto .= "ESCOJE PLAN !!:";
-    foreach($array as $array2){
-        $texto .= ",".$array2['id']."-".$array2['name'];
+    $plans= RESTClient::init("https://cp.lvmcloud.com/api/plans")->get()->getBody();
+    $localizations= RESTClient::init("https://cp.lvmcloud.com/api/localizations")->headers(array())->get()->getBody();
+
+    $_plans = "Select a plan:";
+    foreach($plans as $plan){
+        $_plans .= ",".$plan['id']."-".$plan['name'];
+    }
+    $_localizations = "Select a localization:";
+    foreach($localizations as $localization){
+        $_localizations .= ",".$localization['id']."-".$localization['name'];
     }
     $configarray = array(
-        "PLAN" => array( "Type" => "dropdown", "Options" => $texto ),
+        "PLAN" => array( "Type" => "dropdown", "Options" => $_plans ),
+        "LOCALIZATION"=>array("Type"=>"dropdown","Options"=>$_localizations),
     );
 
     return $configarray;
@@ -55,29 +63,15 @@ function lvmcloud_CreateAccount($params) {
     $template = explode("|", $params["configoptions"]["template_id"]);
     $template_id = $template[0];
     $ch = curl_init();
-
-    curl_setopt($ch, CURLOPT_URL,"https://cp.lvmcloud.com/api/instance");
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);
-    curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-            'User-Token:'.$params['serverusername'],
-            'User-TokenKey:'.$params['serverpassword']));
-    curl_setopt($ch, CURLOPT_POSTFIELDS,
-        "localization_id=1&plan_id=".$plan_id."&template_id=".$template_id."");
-
-    // in real life you should use something like:
-    // curl_setopt($ch, CURLOPT_POSTFIELDS,
-    //          http_build_query(array('postvar1' => 'value1')));
-
-    // receive server response ...
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-    $server_output = curl_exec ($ch);
-
-    curl_close ($ch);
-    $array = json_decode($server_output, true);
-
+    $response = RESTClient::init("https://cp.lvmcloud.com/api/instance")
+        ->params(array(
+                'localization_id'=>1,
+                'plan_id'=>$plan_id,
+                'template_id'=>$template_id))
+        ->headers(array(
+                'User-Token:'.$params['serverusername'],
+                'User-TokenKey:'.$params['serverpassword']))
+        ->post();
     $successful=false;
     if(isset($array['id'])){
         $successful=true;
