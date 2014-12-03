@@ -5,8 +5,9 @@ include_once("RESTClient.php");
 mysql_connect($db_host,$db_username,$db_password);
 mysql_select_db($db_name);
 
-$MsgOK = "You have successfully updated the information for the selected plans."
-$MsgKO = "An error when trying to update the data has occurred. <br>MySQL says: <br> ".$err;
+$MsgOK = "You have successfully updated the information for the selected plans.";
+$MsgKO = "An error when trying to update the data has occurred. <br>MySQL says: <br> ". $err;
+
 function apiCall($url, $data, $method, $usertoken, $tokenkey){
 
     $rtn=RESTClient::init($url)
