@@ -40,7 +40,7 @@ if($_POST['submit'] != "OK"){
 $qr = mysql_query("SELECT name,id FROM tblproducts WHERE servertype='lvmcloud'");
 ?>
 
-<div id = "selectproduct">Seleccione que productos desea actualizar (solo válido con productos asignados al módulo de LVMCloud)</div>
+<div id = "selectproduct">Select which products to update (valid only with products assigned to module LVMCloud)</div>
 <br>
 
 <div id = "container">
@@ -68,5 +68,5 @@ echo '<div class="cb-row">
     createVmIdField();
     }
 ?>
-    <div id="pBox"><a href="javascript:window.close();">Cerrar ventana</a></div>
+    <div id="pBox"><a href="javascript:window.close();">Close Window</a></div>
 </div>

@@ -5,8 +5,8 @@ include_once("RESTClient.php");
 mysql_connect($db_host,$db_username,$db_password);
 mysql_select_db($db_name);
 
-
-
+$MsgOK = "You have successfully updated the information for the selected plans."
+$MsgKO = "An error when trying to update the data has occurred. <br>MySQL says: <br> ".$err;
 function apiCall($url, $data, $method, $usertoken, $tokenkey){
 
     $rtn=RESTClient::init($url)
@@ -62,9 +62,9 @@ function updateTemplates(){
         $err = mysql_error();
 
         if(empty($err)){
-            echo "<div id = 'pBox'>".'<i class="fa fa-check-circle"></i> Se ha actualizado correctamente la informacion para los planes seleccionados. <hr></div>';
+            echo "<div id = 'pBox'>".'<i class="fa fa-check-circle"></i> '.$MsgOK.'<hr></div>';
         }else{
-            echo "<div id = 'pBox'>".'<i class="fa fa-exclamation-triangle"></i> Ha ocurrido un error al tratar de actualizar los datos. <br>MySQL dijo: <br> '.$err.' <hr></div>';
+            echo "<div id = 'pBox'>".'<i class="fa fa-exclamation-triangle"></i> '.$MsgKO.'<hr></div>';
         }
 
     }
@@ -101,11 +101,10 @@ function updateLocalizations(){
         }
 
         $err = mysql_error();
-
         if(empty($err)){
-            echo "<div id = 'pBox'>".'<i class="fa fa-check-circle"></i> Se ha actualizado correctamente la informacion para los planes seleccionados. <hr></div>';
+            echo "<div id = 'pBox'>".'<i class="fa fa-check-circle"></i> '.$MsgOK.'<hr></div>';
         }else{
-            echo "<div id = 'pBox'>".'<i class="fa fa-exclamation-triangle"></i> Ha ocurrido un error al tratar de actualizar los datos. <br>MySQL dijo: <br> '.$err.' <hr></div>';
+            echo "<div id = 'pBox'>".'<i class="fa fa-exclamation-triangle"></i> '.$MsgKO.'<hr></div>';
         }
 
     }
@@ -126,11 +125,10 @@ function createVmIdField(){
         }
 
         $err = mysql_error();
-
         if(empty($err)){
-            echo "<div id = 'pBox'>".'<i class="fa fa-check-circle"></i> Se ha actualizado correctamente la informacion para los planes seleccionados. <hr></div>';
+            echo "<div id = 'pBox'>".'<i class="fa fa-check-circle"></i> '.$MsgOK.'<hr></div>';
         }else{
-            echo "<div id = 'pBox'>".'<i class="fa fa-exclamation-triangle"></i> Ha ocurrido un error al tratar de actualizar los datos. <br>MySQL dijo: <br> '.$err.' <hr></div>';
+            echo "<div id = 'pBox'>".'<i class="fa fa-exclamation-triangle"></i> '.$MsgKO.'<hr></div>';
         }
 
     }
