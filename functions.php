@@ -32,6 +32,9 @@ function doing($what){
 }
 
 function updateTemplates(){
+    global $MsgOK;
+    global $MsgKO;
+
     doing("templates");
     global $headers;
     $template_txt="";
@@ -72,6 +75,9 @@ function updateTemplates(){
 }
 
 function updateLocalizations(){
+    global $MsgOK;
+    global $MsgKO;
+
     doing("localizations");
     global $headers;
     $localisation_txt="";
@@ -112,6 +118,9 @@ function updateLocalizations(){
 }
 
 function createVmIdField(){
+    global $MsgOK;
+    global $MsgKO;
+    
     doing("VmId");
     foreach($_POST['check'] as $plan){
         //Miramos si existe el custom field
