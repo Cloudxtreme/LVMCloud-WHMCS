@@ -1,22 +1,26 @@
 <?php
+include("functions.php");
 
 function lvmcloud_ConfigOptions() {
-
-	# Should return an array of the module options for each product - maximum of 24
+    global $params;
 	$g = file_get_contents("https://cp.lvmcloud.com/api/plans");
 	$array = json_decode($g, true);
-	$texto .= "ESCOJE PLAN !!:"; 
+	$texto = "<b>Selecciona un plan</b>";
 	foreach($array as $array2){
-	$texto .= ",".$array2['id']."-".$array2['name'];
+	$texto .= ",".$array2['description'];
 	}
     $configarray = array(
-	 "PLAN" => array( "Type" => "dropdown", "Options" => $texto ),
+	 "Plan: " => array( "Type" => "dropdown", "Options" => $texto ),
 	 );
-
 	return $configarray;
-
 }
+
+
 function lvmcloud_CreateAccount($params) {
+    //Definimos variables de API
+    $url = "https://api.lvmcloud.com/api/instance";
+    $method = "POST";
+
 
     # ** The variables listed below are passed into all module functions **
 
@@ -44,100 +48,147 @@ function lvmcloud_CreateAccount($params) {
     $serverpassword = $params["serverpassword"];
     $serveraccesshash = $params["serveraccesshash"];
     $serversecure = $params["serversecure"]; # If set, SSL Mode is enabled in the server config
-	$plan = $configoption1;	$template = $params["customfields"]["Sistema Operativo"];
-	$ch = curl_init();
+	$plan = $configoption1;
+    $template = $params["customfields"]["Sistema Operativo"];
+    $localization = $params["customfields"]["Localizacion"];
 
-	curl_setopt($ch, CURLOPT_URL,"https://cp.lvmcloud.com/api/instance");
-	curl_setopt($ch, CURLOPT_POST, 1);
-	curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0);
-	curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-	'User-Token:'.$params["serverusername"],
-	'User-TokenKey:'.$params["serverpassword"]
-	));
-	curl_setopt($ch, CURLOPT_POSTFIELDS,
-				"localization_id=2&plan_id=".$plan."&template_id=".$template."&extra_ram=0&extra_cpu=0");
+    $data = array("localization_id" => $localization, "plan_id" => $plan, "template_id"=>$template, "extra_ram"=>0, "extra_cpu"=>0);
 
-	// in real life you should use something like:
-	// curl_setopt($ch, CURLOPT_POSTFIELDS, 
-	//          http_build_query(array('postvar1' => 'value1')));
 
-	// receive server response ...
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+	$result = apiCall($url, $data, $method, $serverusername, $serverpassword);
 
-	$server_output = curl_exec ($ch);
-$array12 = json_decode($server_output, true);
-	curl_close ($ch);
-	
-	$successful = true;
-$vmid = $array12['instance']['id'];
-		$vmip = $array12['instance']['ips'][0]['ip'];
-		$vmpasswd = $array12['instance']['password'];
-	if ($successful) {
-		
-		$table = "tblhosting"; 
-		$array = array("dedicatedip"=>$vmip,"password"=>$vmpasswd); 
-		$where = array("id"=>$serviceid); 
-		update_query($table,$array,$where); 
-		$result = "success";
-	} else {
-		$result =  "Un error ha ocurrido";
-	}
-	return $result;
+    if($result['instance']['status'] == "CREATING"){
 
+        $vmid = $result['instance']['id'];
+        $ipaddr = $result['instance']['ips']['0']['ip'];
+        $vmpasswd = $result['instance']['password'];
+
+
+        //Get admin list
+        $AdminsQuery = mysql_query("SELECT * FROM tbladmins WHERE roleid='1'");
+        $Admin = mysql_fetch_object($AdminsQuery);
+
+        $command = "modulechangepw";
+        $adminuser = $Admin->username;
+        $values["serviceid"] = $serviceid;
+        $values["servicepassword"] = $vmpasswd;
+        $results = localAPI($command,$values,$adminuser);
+
+        if($results['result'] != "success"){
+            return "Error writing password:  " . print_r($results, true);
+        }
+
+        $table = "tblhosting";
+        $array = array("dedicatedip"=>$ipaddr, "domain"=>$result['instance']['name']);
+        $where = array("id"=>$serviceid);
+        update_query($table,$array,$where);
+
+        $SQL = mysql_query("SELECT * FROM tblcustomfields WHERE relid='".$pid."'");
+
+        //Ahora buscamos los optionalfields de este pid
+        while($fields = mysql_fetch_object($SQL)){
+            if($fields->fieldname == "VmId"){
+                $vmid_field = $fields->id;
+            }
+        }
+
+        $result = "success";
+
+        //Insertamos la VmId en la MySQL
+           if(mysql_num_rows(mysql_query("SELECT * FROM tblcustomfieldsvalues WHERE fieldid='$vmid_field' and relid='$serviceid'")) == 0){
+               $vmidQ = mysql_query("INSERT into tblcustomfieldsvalues (fieldid, relid, value) VALUES('$vmid_field','$serviceid','$vmid')");
+           }else{
+               $vmidQ = mysql_query("UPDATE tblcustomfieldsvalues SET fieldid='$vmid_field', relid='$serviceid', value='$vmid'  WHERE fieldid='$vmid_field' and relid='$serviceid'");
+           }
+
+        }else{
+            if($result['code'] != null){
+                $result = $result['code'] . ": " . $result['message'];
+            }
+        }
+
+       return $result;
+}
+
+function lvmcloud_checkVmStatus($vmid, $tokenuser, $tokenkey){
+    $url = "https://api.lvmcloud.com/api/instance/".$vmid;
+    $result = apiCall($url, null, "GET", $tokenuser, $tokenkey);
+    return $result['instance']['status'];
 }
 
 function lvmcloud_TerminateAccount($params) {
+    $s=0;
+    lvmcloud_shutdown($params);
+    $vmid = $params['customfields']['VmId'];
 
-	# Code to perform action goes here...
+    while(true){
+        $s++;
+        if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STOPPED"){
+            break;
+        }else{
+            if($s>=25) return "Cannot shutdown VM ".lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) ;
+        }
+        sleep(1);
+    }
 
-    if ($successful) {
-		$result = "success";
-	} else {
-		$result = "Error Message Goes Here...";
-	}
-	return $result;
-
+    $url = "https://api.lvmcloud.com/api/instance/".$vmid;
+    $method = "DELETE";
+    $result = apiCall($url, null, $method, $params['serverusername'], $params['serverpassword']);
+    return (lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "BUSY" ? "success" : "fail");
 }
 
 function lvmcloud_SuspendAccount($params) {
+    $s=0;
+    lvmcloud_shutdown($params);
+    $vmid = $params['customfields']['VmId'];
 
-	# Code to perform action goes here...
+    while(true){
+        $s++;
+        if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STOPPED"){
+            break;
+        }else{
+            if($s>=25) return "Cannot shutdown VM ".lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) ;
+        }
+        sleep(1);
+    }
 
-    if ($successful) {
-		$result = "success";
-	} else {
-		$result = "Error Message Goes Here...";
-	}
-	return $result;
-
+    $url = "https://api.lvmcloud.com/api/instance/archivate/".$vmid;
+    $method = "PUT";
+    $result = apiCall($url, null, $method, $params['serverusername'], $params['serverpassword']);
+    return (lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "BUSY" ? "success" : "fail");
 }
 
 function lvmcloud_UnsuspendAccount($params) {
+    $s=0;
+    $vmid = $params['customfields']['VmId'];
 
-	# Code to perform action goes here...
+     if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) != "ARCHIVED"){
+         return "This VM is not archivated, currrent status is " . lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']);
+     }
 
-    if ($successful) {
-		$result = "success";
-	} else {
-		$result = "Error Message Goes Here...";
-	}
-	return $result;
 
+    $url = "https://api.lvmcloud.com/api/instance/unarchive/".$vmid;
+    $method = "PUT";
+    $result = apiCall($url, null, $method, $params['serverusername'], $params['serverpassword']);
+    return (lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "BUSY" ? "success" : "fail");
 }
 
 function lvmcloud_ChangePassword($params) {
+   /* $s=0;
+    lvmcloud_shutdown($params);
+    $vmid = $params['customfields']['VmId'];
 
-	# Code to perform action goes here...
+    while(true){
+        $s++;
+        if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STOPPED"){
+            break;
+        }else{
+            if($s>=25) return "Cannot shutdown VM ".lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) ;
+        }
+        sleep(1);
+    }*/
 
-    if ($successful) {
-		$result = "success";
-	} else {
-		$result = "Error Message Goes Here...";
-	}
-	return $result;
-
+    return "success";
 }
 
 function lvmcloud_ClientArea($params) {
@@ -156,11 +207,11 @@ function lvmcloud_ClientArea($params) {
 
 
 function lvmcloud_AdminLink($params) {
+	$code = '<form action="/modules/servers/lvmcloud/update_resources.php" method="post" target="_blank">
+<input type="hidden" name="tokenuser" value="'.$params['serverusername'].'">
+<input type="hidden" name="tokenkey" value="'.$params['serverpassword'].'">
 
-	$code = '<form action="http://cp.lvmcloud.com/" method="post" target="_blank">
-<input type="submit" value="Entrar al CP" />
-</form><form action="/modules/servers/lvmcloud/update_templates.php" method="post" target="_blank">
-<input type="submit" value="Actualizar Templates" />
+<input type="submit" value="Update internal information" />
 </form>';
 	return $code;
 
@@ -168,124 +219,66 @@ function lvmcloud_AdminLink($params) {
 
 function lvmcloud_LoginLink($params) {
 
-	echo '<a href="http://cp.lvmcloud.com/" target=\"_blank\" style=\"color:#cc0000\">Entrar al panel</a>';
+	//echo '<a href="http://cp.lvmcloud.com/" target=\"_blank\" style=\"color:#cc0000\">Entrar al panel</a>';
 
 }
 
 function lvmcloud_reboot($params) {
+    $vmid = $params['customfields']['VmId'];
+    if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STOPPED") return "You can't restart this instance because it's stopped.";
 
-	# Code to perform reboot action goes here...
-
-    if ($successful) {
-		$result = "success";
-	} else {
-		$result = "Error Message Goes Here...";
-	}
-	return $result;
-
+    lvmcloud_shutdown($params);
+    sleep(3);
+    lvmcloud_start($params);
 }
 
 function lvmcloud_start($params) {
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL,'https://cp.lvmcloud.com/api/instance/start/'.$params['customfields']['server_id']);
-	curl_setopt($ch, CURLOPT_POST, 0);
-	curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0); 
-	curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-    'User-Token:'.$params['serverusername'],
-    'User-TokenKey:'.$params['serverpassword']
-    ));
-	// in real life you should use something like:
-	// curl_setopt($ch, CURLOPT_POSTFIELDS, 
-	//          http_build_query(array('postvar1' => 'value1')));
+    $vmid = $params['customfields']['VmId'];
+    if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STARTED") return "This instance is already started.";
 
-	// receive server response ...
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	$server_output = curl_exec($ch);
-	$array = json_decode($server_output, true);
-	curl_close($ch);
-	$successful = true;
-	if ($array['instance']['status']=="STARTED") {
-		$result = "success";
-	} else {
-		$result = "Ha ocurrido un error desconocido, contacte con soporte por favor. Gracias.";
-	}
-	return $result;
+    $url = "https://api.lvmcloud.com/api/instance/start/".$vmid;
+    $method = "PUT";
+    $result = apiCall($url, null, $method, $params['serverusername'], $params['serverpassword']);
+    return (lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STARTED" ? "success" : "An unknown error has occurred, please contact support. Thank you.");
 }
 
 function lvmcloud_shutdown($params) {
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL,'https://cp.lvmcloud.com/api/instance/stop/'.$params['customfields']['server_id']);
-	curl_setopt($ch, CURLOPT_POST, 0);
-	curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0); 
-	curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-    'User-Token:'.$params['serverusername'],
-    'User-TokenKey:'.$params['serverpassword']
-    ));
-	// in real life you should use something like:
-	// curl_setopt($ch, CURLOPT_POSTFIELDS, 
-	//          http_build_query(array('postvar1' => 'value1')));
+    $vmid = $params['customfields']['VmId'];
+    if(lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "STOPPED") return "This instance is already stopped.";
 
-	// receive server response ...
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	$server_output = curl_exec($ch);
-	$array = json_decode($server_output, true);
-	curl_close($ch);
-	if ($array['instance']['status']=="BUSY") {
-		$result = "success";
-	} elseif($array['instance']['status']=="STOPPED") {
-		$result = "El servidor está parado actualmente.";
-	}else{
-		$result = "Ha ocurrido un error desconocido, contacte con soporte por favor. Gracias.";
-	}
+    $url = "https://api.lvmcloud.com/api/instance/stop/".$vmid;
+    $method = "PUT";
+    $result = apiCall($url, null, $method, $params['serverusername'], $params['serverpassword']);
+    return (lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) == "BUSY" ? "success" : "An unknown error has occurred, please contact support. Thank you. Current status is: " . lvmcloud_checkVmStatus($vmid, $params['serverusername'], $params['serverpassword']) );
+
 	return $result;
 
 }
 
 function lvmcloud_ClientAreaCustomButtonArray() {
     $buttonarray = array(
-	 "Encender servidor" => "start",
-	 "Reiniciar servidor" => "reboot",
-	 "Apagar servidor" => "shutdown",
-	 "Abrir VNC" => "encendervnc",
+	 "Start Instance" => "start",
+     "Stop Instance" => "shutdown",
+     "Restart Instance" => "reboot",
+	 "Open VNC" => "encendervnc",
 	);
 	return $buttonarray;
 }
 
 function lvmcloud_AdminCustomButtonArray() {
-    $buttonarray = array(
-	 "Abrir VNC" => "encendervnc",
-	);
-	return $buttonarray;
+return lvmcloud_ClientAreaCustomButtonArray();
 }
 
 function lvmcloud_encendervnc($params) {
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL,'https://cp.lvmcloud.com/api/instance/vnc/'.$params['customfields']['server_id']);
-	curl_setopt($ch, CURLOPT_POST, 1);
-	curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);
-	curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0); 
-	curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-    'User-Token:'.$params['serverusername'],
-    'User-TokenKey:'.$params['serverpassword']
-    ));
-	// in real life you should use something like:
-	// curl_setopt($ch, CURLOPT_POSTFIELDS, 
-	//          http_build_query(array('postvar1' => 'value1')));
+    $vmid = $params['customfields']['VmId'];
+    $url = "https://api.lvmcloud.com/api/instance/vnc/".$vmid;
+    $method = "PUT";
+    $result = apiCall($url, null, $method, $params['serverusername'], $params['serverpassword']);
 
-	// receive server response ...
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	$server_output = curl_exec($ch);
-	$array = json_decode($server_output, true);
-	curl_close($ch);
-	$hostvnc = $array['noVNC']['host'];
-	$portvnc = $array['noVNC']['port'];
-	$passwordvnc = $array['noVNC']['password'];
-	$pathvnc = $array['noVNC']['uri'];
+	$hostvnc = $result['noVNC']['host'];
+	$portvnc = $result['noVNC']['port'];
+	$passwordvnc = $result['noVNC']['password'];
+	$pathvnc = $result['noVNC']['uri'];
     $pagearray = array(
      'templatefile' => 'vnc',
      'breadcrumb' => ' > <a href="#">VNC</a>',
