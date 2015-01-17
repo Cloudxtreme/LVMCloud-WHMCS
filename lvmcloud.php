@@ -207,7 +207,7 @@ function lvmcloud_ClientArea($params) {
 
 
 function lvmcloud_AdminLink($params) {
-	$code = '<form action="/modules/servers/lvmcloud/update_resources.php" method="post" target="_blank">
+	$code = '<form action="'.$params['serverhostname'].'/modules/servers/lvmcloud/update_resources.php" method="post" target="_blank">
 <input type="hidden" name="tokenuser" value="'.$params['serverusername'].'">
 <input type="hidden" name="tokenkey" value="'.$params['serverpassword'].'">
 
